@@ -22,5 +22,5 @@ def time_delete(time_1, time_2):
     '''
     time_1_sec, time_2_sec = time_to_seconds(time_1), time_to_seconds(time_2)
     delta_time_sec = time_1_sec - time_2_sec
-    delta_time = seconds_to_time(delta_time_sec)
-    return delta_time 
+    # delta_time = seconds_to_time(delta_time_sec)
+    return delta_time_sec 

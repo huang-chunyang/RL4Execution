@@ -26,17 +26,13 @@ from simkelly_pyapi.kelly_pytd_api import (KELLY_WAIT_ORDERFIELD,
 from bond_momentum.bond_momentum import (BondMomentum, AM_BEGIN, AM_END, PM_BEGIN, PM_END1)
 from place_selford_process import PlaceSelfOrdProcess
 from utils import time_delete, time_to_seconds
-import numpy as np
 
 class TradingEnv:
-    def __init__(self, config, time_stamp, policy): # TODO: add policy here
+    def __init__(self, config, time_stamp): # TODO: add policy here
 
         self.time_stamp = time_stamp
         
         self.config = config
-        self.policy = policy
-        self.action_space = (np.linspace(-5, 5, 11)*100).astype(int) # unit: 100, 因为需要整百的price挂单
-        self.action_dim = len(self.action_space)
         
         self.snapshot_q = multiprocessing.Queue()
         self.status_selford_q = multiprocessing.Queue()

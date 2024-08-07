@@ -25,13 +25,18 @@ from simkelly_pyapi.kelly_pytd_api import (KELLY_WAIT_ORDERFIELD,
 
 from bond_momentum.bond_momentum import (BondMomentum, AM_BEGIN, AM_END, PM_BEGIN, PM_END1)
 from place_selford_process import PlaceSelfOrdProcess
+from utils import time_delete, time_to_seconds
+import numpy as np
 
 class TradingEnv:
-    def __init__(self, config, time_stamp): # TODO: add policy here
+    def __init__(self, config, time_stamp, policy): # TODO: add policy here
 
         self.time_stamp = time_stamp
         
         self.config = config
+        self.policy = policy
+        self.action_space = (np.linspace(-5, 5, 11)*100).astype(int) # unit: 100, 因为需要整百的price挂单
+        self.action_dim = len(self.action_space)
         
         self.snapshot_q = multiprocessing.Queue()
         self.status_selford_q = multiprocessing.Queue()
@@ -45,7 +50,7 @@ class TradingEnv:
         self.spread_trading = BondMomentum(self.td_api, self.snapshot_q, self.status_selford_q, self.selftra_q, self.place_selford_q)
         
         self.spread_trading.add_trade_order(config.TradeParam.start_time, config.TradeParam.end_time, config.TradeParam.volume, config.TradeParam.direction, n_splits=config.TradeParam.split_num)
-        self.spread_trading.init_work_td(config.StrategyParam.instrument )
+        self.spread_trading.init_work_td(config.StrategyParam.instrument)
         
         self.place_selford_process = PlaceSelfOrdProcess(0, 0, config.TDConfig.broker_id, config.TDConfig.user, self.td_api, self.place_selford_q)
         self.place_selford_process.start()
@@ -134,16 +139,9 @@ class TradingEnv:
     
         self.spread_trading.join_work_td()
         self.place_selford_process.join()
-    
+        return self.spread_trading.get_buffer()
+    def exit(self):
         sys.exit(0)
-        return 
-        
-
-    def get_state(self):
-        # 获取当前市场状态
-        # 这里可以根据具体需求提取市场数据
-        state = None
-        return state
 
     def execute_trade(self, action, parent_order, info):
         # 执行交易并计算奖励
@@ -190,10 +188,16 @@ if __name__ == '__main__':
         f"log_dir: {param.result_folder}, appid: {app_id}"
     print(log)
     # trade params 
-    split_num = min(config.TradeParam.volume//100, (config.TradeParam.end_time-config.TradeParam.start_time)//3000*20)
+    split_num = int(min(config.TradeParam.volume//100, time_delete(config.TradeParam.end_time, config.TradeParam.start_time)//(3*20)))
+    config.TradeParam.split_num = split_num
+    print('split_num:', split_num)
     env = TradingEnv(config, time_stamp)
-    env.trade()
-
+    train_data = env.trade()
+    print('train_data', len(train_data))
+    # print(train_data)
+    for sample in train_data:
+        print(sample, '\n')
+    env.exit()
     # # 示例：调用模拟交易函数
     # policy = lambda state: None  # 假设这是一个简单的策略函数
     # parent_order = None
@@ -201,4 +205,4 @@ if __name__ == '__main__':
     # state, action, reward, next_state = env.sim_trade(policy, parent_order, info)
     # print(f"State: {state}, Action: {action}, Reward: {reward}, Next State: {next_state}")
 
-    sys.exit(0)
+    # sys.exit(0)

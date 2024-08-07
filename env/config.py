@@ -18,13 +18,13 @@ class StrategyParam(object):
     result_folder: str = './logs/'
     trading_day: str = '20230829'
     instrument: str = '600566.SH'
-    time_window: int = 30
+    time_window: int = 20
     ordbaseunit_volume: int = 100
     ordmaxunit_volume: int = ordbaseunit_volume * 7
 
 class TradeParam(object):
-    start_time: int = 93000000
-    end_time:   int = 94500000
-    volume: int = int(1e5)
+    start_time: int =  93100000
+    end_time:   int = 100000000
+    volume: int = int(1e4)
     direction: str = 'buy'
     split_num: int = 15

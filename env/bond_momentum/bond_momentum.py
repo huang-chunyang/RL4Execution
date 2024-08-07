@@ -72,6 +72,7 @@ def split_time_interval(start_time, end_time, n_splits):
     for i in range(n_splits + 2):
         split_time = seconds_to_time(start_seconds + i * interval)
         splits.append(split_time)
+    print(splits)
     return splits
     
 def update_period(order):
@@ -96,6 +97,12 @@ def search_vwap_opportunity(snapshot, vwap, direction):
             return True
         else:
             return False
+
+def get_private_features(order):
+    executed_quantity = order.delta_pos / order.total_quantity
+    remaining_time = order.time_index / order.n_splits
+    return [executed_quantity, remaining_time]
+    
 def adjust_price(raw_price):
     '''
     price 要求是正百的int, 如261300
@@ -133,14 +140,22 @@ class BondMomentum(object):
         self.parent_orders = []
         self.child_orders = []
 
-        self.train_data = None # s(market features + private features), a(price, volume), r()
+        self.train_data = []  # 存储 s(market features + private features), a(price, volume), r()
+        self.current_state = None 
+        self.current_action = None 
+        self.market_features = None
         # 初始化log文件
         self.tick_log_file = None
         self.tick_logger = None
+
+        
     def check_data_cache(self):
         len_ = len(self.sig_gen.get_data())
-        print(len_)
         return len_ == config.StrategyParam.time_window
+    
+    def get_buffer(self):
+        return self.train_data # list[tuple]; tuple: (state: dict, action: dict, reward: float) 
+        
     def set_force_quit_flag(
         self,
         force_quit: bool
@@ -150,7 +165,7 @@ class BondMomentum(object):
     def add_trade_order(self, start_time, end_time, volume, direction, n_splits):
         order = TradeOrder(start_time, end_time, volume, direction, n_splits)
         self.parent_orders.append(order)
-
+        
     def init_work_td(
         self,
         instrument: str
@@ -229,53 +244,61 @@ class BondMomentum(object):
                 return
 
             current_time = next_task['Time']
-            vwap = self.sig_gen.add_data(next_task)
+            self.market_features = self.sig_gen.add_data(next_task) # features list[feature]
             # print(next_task)
-            order.delta_pos: int = self.q_value_proxy.get() # 持仓
-            
             # print(current_time)
             ask_price_0 = next_task['AskPrice'][0]
             bid_price_0 = next_task['BidPrice'][0]
 
-            # if config.StrategyParam.out_log and self.tick_o.writable():
-            #     log = f"{current_time},{next_task['Volume']}, {next_task['Turnover']},{ask_price_0},{bid_price_0},{vwap}\n"
-            #     self.tick_o.write(log)
-            #     self.tick_o.flush()
-
             for order in self.parent_orders:  # 母单
+                order.delta_pos: int = self.q_value_proxy.get() # 持仓
                 start_period, end_period = update_period(order)
                 # print(start_period, current_time, end_period, order.order_placed)
                 if start_period < current_time <= end_period and order.time_index<order.n_splits:
                     if not order.order_placed and self.check_data_cache(): # 如果未挂单
                         ##########按照最优价挂单##################
+                        print('按照最优价挂单', current_time)
                         volume_per_split = order.volume // order.n_splits
         
                         if order.direction == 'buy':
-                            price = adjust_price(vwap)
+                            price = next_task['BidPrice'][0] 
                             direction = KELLY_D_BUY
                         else:
-                            price = adjust_price(vwap)
+                            price = next_task['AskPrice'][0]
                             direction = KELLY_D_SELL
-        
+                        # 记录当前状态
+                        private_features = get_private_features(order)
+                        self.current_state = {
+                            'Time': current_time,
+                            'order_local_id': str(self.local_ord_id),
+                            'features': self.market_features + private_features
+                        }
                         sug_td = TDSug(
                             instrument=next_task['Instrument'], order_localid=str(self.local_ord_id),
                             order_type=KELLY_OT_LIMITPRICE, exchange=next_task['Exchange'],
                             price=price, volume=volume_per_split, direction=direction)
                         if config.StrategyParam.out_log and self.placeord_o.writable():
                             log = f"{next_task['Time']},{sug_td.exchange},{next_task['AskPrice'][0]},{next_task['BidPrice'][0]}," + \
-                                  f"{delta_pos},{sug_td.price},{sug_td.volume},{sug_td.direction},{sug_td.order_localid}\n"
+                                  f"{order.delta_pos},{sug_td.price},{sug_td.volume},{sug_td.direction},{sug_td.order_localid}\n"
                             self.placeord_o.write(log)
                             self.placeord_o.flush()
-        
+                        # 记录当前动作
+                        self.current_action = {
+                            'Time': current_time,
+                            'order_local_id': str(self.local_ord_id),
+                            'volume': volume_per_split,
+                            'price': price, 
+                            'direction': direction, 
+                        }
                         self.local_ord_id -= 1
                         self.__add_selford(sug_td, self.place_selford_q) # add ord 
                         order.remaining_volume -= volume_per_split
                         order.target_delta_pos += volume_per_split
-                    
+
                         if order.remaining_volume < volume_per_split: # TODO: change sth else
                             order.remaining_volume = 0
                         self.__add_eventord(2, self.place_selford_q)
-                        order.order_placed = True 
+                        order.order_placed = True
                     else:
                         md_api.set_waitevent()
                         ############################################
@@ -284,11 +307,11 @@ class BondMomentum(object):
 
                     if order.order_placed and check_deal:
                         ############### 滑到下一period ##########
-                        print('成交,滑到下一period')
+                        print('成交,滑到下一period', current_time)
                         order.time_index += 1
                         # order.time_index = min(order.time_index, order.n_splits-1)
                         order.order_placed = False
-                    if order.order_placed and (not check_deal) and (current_time > time_delete(end_period, 3000*3)):
+                    if order.order_placed and (not check_deal) and time_delete(end_period, current_time) < 3*2: # 3s * 3
                         ############# 撤 单 ##############
                         print('one period is comming over, check point is ', order.time_index)
                         sug_td = TDSug(
@@ -305,7 +328,7 @@ class BondMomentum(object):
                         ########## 滑到下一period #################
                         order.order_placed = False
                         order.time_index += 1
-                        print('消极挂单, 滑到下一period')
+                        print('消极挂单, 滑到下一period', current_time)
                 else:
                     md_api.set_waitevent()
 
@@ -325,13 +348,22 @@ class BondMomentum(object):
             except Exception:
                 return
 
-            if next_task['MatchType'] == KELLY_MT_MATCH:
+            if next_task['MatchType'] == KELLY_MT_MATCH: # 这个问题啊啊啊啊啊
                 if next_task['Direction'] == KELLY_D_SELL:
                     self.q_value_proxy.increment(-next_task['Volume'])
                 elif next_task['Direction'] == KELLY_D_BUY:
                     self.q_value_proxy.increment(next_task['Volume'])
                 else:
                     print(f"The trade direction is invalid: {next_task['Direction']}")
+
+            # 计算reward(self.current_state, self.current_action)
+            order_local_id = next_task['OrderLocalID']
+            vwap, volume = self.market_features[0], next_task['Volume']
+            reward = next_task['MatchAmount'] - vwap * volume # sum(n_i * price_i), 成交量 - vwap * volume
+            # 将 (state, action, reward) 存入train_data
+            if self.current_state is not None and self.current_action is not None:
+                self.train_data.append((self.current_state, self.current_action, reward))
+                
             if config.StrategyParam.out_log and self.traded_o.writable():
                 log = f"{next_task['OrderLocalID']},{'B' if next_task['Direction'] == KELLY_D_BUY else 'S'}," +\
                     f"{next_task['Volume']},{next_task['Price']},{next_task['MatchAmount']},{self.q_value_proxy.get()},{next_task['MatchTime']}," +\
@@ -351,7 +383,6 @@ class BondMomentum(object):
         while (not self.force_quit):
             try:
                 next_task: dict = input_q.get(True, 0.01)
-                # print('next_task in __process*')
             except queue.Empty:
                 continue
             except Exception:
