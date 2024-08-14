@@ -28,3 +28,4 @@ class TradeParam(object):
     volume: int = int(1e4)
     direction: str = 'buy'
     split_num: int = 15
+    policy_path: str = ''

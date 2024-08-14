@@ -117,7 +117,9 @@ class PPO:
         self.buffer.actions.append(action)
         self.buffer.logprobs.append(action_logprob)
         self.buffer.state_values.append(state_val)
-
+        # print(state.shape, action.shape, action_logprob.shape, state_val.shape)
+        # print(state, action, action_logprob, state_val)
+        # assert False
         return action.item()
 
 
@@ -130,7 +132,7 @@ class PPO:
                 discounted_reward = 0
             discounted_reward = reward + (self.gamma * discounted_reward)
             rewards.insert(0, discounted_reward)
-            
+        
         # Normalizing the rewards
         rewards = torch.tensor(rewards, dtype=torch.float32).to(self.device)
         rewards = (rewards - rewards.mean()) / (rewards.std() + 1e-7)
@@ -175,11 +177,9 @@ class PPO:
         # clear buffer
         self.buffer.clear()
     
-    
     def save(self, checkpoint_path):
         torch.save(self.policy_old.state_dict(), checkpoint_path)
-   
-
+        
     def load(self, checkpoint_path):
         self.policy_old.load_state_dict(torch.load(checkpoint_path, map_location=lambda storage, loc: storage))
         self.policy.load_state_dict(torch.load(checkpoint_path, map_location=lambda storage, loc: storage))

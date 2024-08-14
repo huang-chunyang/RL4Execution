@@ -1,11 +1,10 @@
 import multiprocessing
 import sys
 sys.path.append("../")
-from utils import time_delete, time_to_seconds
+from env.utils import time_delete, time_to_seconds
 import pandas as pd
 import numpy as np
 class PlaceOrdSigGen(object):
-
     def __init__(
         self,
         time_window: int
@@ -14,12 +13,14 @@ class PlaceOrdSigGen(object):
         print('time_window:', time_window)
         self.lock = multiprocessing.Lock()
         self.data_cache: list[dict] = []
+        self.vwap_data_cache: list[dict] = []
         
         self.debug_log_o = open("./signal_debuglog.csv", 'w')
         log = "time,askprice_0,bidprice_0,cache_len,vwap,cache_size,ask_bid_spread,ab_volume_misbalance,transaction_net_volume,volatility\n"
         self.debug_log_o.write(log)
         
         self.open_price = None 
+        self.market_feature_num = 5
         
     def add_data(
         self,
@@ -44,7 +45,24 @@ class PlaceOrdSigGen(object):
             # 记录日志
             self.__log_debug(snap_shot, vwap, ask_bid_spread, ab_volume_misbalance, transaction_net_volume, volatility)
             return [vwap, ask_bid_spread, ab_volume_misbalance, transaction_net_volume, volatility]
-            
+    def add_vwap_data(
+        self,
+        snap_shot: dict):
+        with self.lock:
+            self.vwap_data_cache.append(snap_shot) 
+
+    def __calculate_tot_vwap(self):
+        # 计算 VWAP
+        total_volume = self.vwap_data_cache[-1]['Volume'] - self.vwap_data_cache[0]['Volume']
+        if total_volume == 0:
+            vwap = 0.0
+        else:
+            vwap = (self.vwap_data_cache[-1]['Turnover'] - self.vwap_data_cache[0]['Turnover']) / total_volume * 1e4 # 1e4 是因为数据平台对原始price 乘1e4
+        return vwap
+   
+    def get_tot_vwap(self):
+        return self.__calculate_tot_vwap()
+        
     def get_data(self) -> list[dict]:
         return self.data_cache
         

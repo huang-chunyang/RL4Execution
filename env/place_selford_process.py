@@ -5,8 +5,9 @@
 import threading
 import queue
 import multiprocessing
-
-from kelly_tdapi_imp import KellyTDApiImp
+import sys
+sys.path.append('../')
+from env.kelly_tdapi_imp import KellyTDApiImp
 
 
 class PlaceSelfOrdProcess(threading.Thread):

@@ -18,7 +18,7 @@ def seconds_to_time(seconds):
 def time_delete(time_1, time_2):
     '''
     input: time_1, time2(format: HHMMSSsss; 93000000-> 9:30:00 000)
-    output: time1- time2 (format: HHMMSSsss)
+    output: time1- time2 (format: sec)
     '''
     time_1_sec, time_2_sec = time_to_seconds(time_1), time_to_seconds(time_2)
     delta_time_sec = time_1_sec - time_2_sec
